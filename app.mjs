@@ -11,8 +11,15 @@ const supabaseUrl = "https://ohmvcercqgbzzttzfibv.supabase.co";
 const supabaseKey = "sb_publishable_MsTGQzUHL3tx7c6LYfX4GA_UgSrhxjU"; 
 const supabase = createClient(supabaseUrl, supabaseKey);
 
-app.use(cors());
 app.use(express.json());
+
+app.use(cors({
+  origin: [
+    "http://localhost:5173",  // สำหรับรัน Frontend ในเครื่อง (Vite)
+    "http://localhost:3000",  // เผื่อใช้ Port 3000
+    "https://your-frontend-project.vercel.app" // ⚠️ (อนาคต) ใส่ลิงก์ Frontend ตอน Deploy จริง
+  ]
+}));
 
 // -------------------------------------------------------
 // 3. นี่คือส่วนที่หายไป! (API สำหรับสร้างโพสต์ใหม่)
