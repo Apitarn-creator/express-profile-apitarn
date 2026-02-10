@@ -10,6 +10,7 @@
     },
     "keywords": [],
     "dependencies": {
+        "@supabase/supabase-js": "^2.95.3",
         "cors": "^2.8.6",
         "express": "^5.2.1"
     }
