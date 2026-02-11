@@ -2,72 +2,119 @@ import express from "express";
 import cors from "cors";
 import { createClient } from "@supabase/supabase-js";
 
-// 1. ตั้งค่า Server
+// 1. Setup Server & Supabase
 const app = express();
 const port = process.env.PORT || 4001;
-
 
 const supabaseUrl = "https://ohmvcercqgbzzttzfibv.supabase.co"; 
 const supabaseKey = "sb_publishable_MsTGQzUHL3tx7c6LYfX4GA_UgSrhxjU"; 
 const supabase = createClient(supabaseUrl, supabaseKey);
 
+app.use(cors());
 app.use(express.json());
 
-app.use(cors({
-  origin: [
-    "http://localhost:5173",  // สำหรับรัน Frontend ในเครื่อง (Vite)
-    "http://localhost:3000",  // เผื่อใช้ Port 3000
-    "https://your-frontend-project.vercel.app" // ⚠️ (อนาคต) ใส่ลิงก์ Frontend ตอน Deploy จริง
-  ]
-}));
+// -------------------------------------------------------------
+// 1. API เดิม: สร้างบทความ (Create)
+// -------------------------------------------------------------
+app.post("/post", async (req, res) => {
+  const { title, image, category_id, description, content, status_id } = req.body;
+  
+  if (!title || !image || !category_id || !description || !content || !status_id) {
+    return res.status(400).json({ message: "Missing required fields" });
+  }
 
-app.get("/health", (req, res) => {
-  res.status(200).json({ message: "OK" });
+  const { error } = await supabase.from("posts").insert([{
+    title, image, category_id, description, content, status_id
+  }]);
+
+  if (error) return res.status(500).json({ message: error.message });
+  return res.status(201).json({ message: "Created post successfully" });
 });
 
-// -------------------------------------------------------
-// 3. นี่คือส่วนที่หายไป! (API สำหรับสร้างโพสต์ใหม่)
-// -------------------------------------------------------
-app.post("/post", async (req, res) => {
-  console.log("Received POST request:", req.body); // เช็คว่ามีข้อมูลส่งมาถึง Server ไหม
+// -------------------------------------------------------------
+// 2. API ใหม่: อ่านบทความทั้งหมด + ค้นหา (Read All)
+// -------------------------------------------------------------
+app.get("/posts", async (req, res) => {
+  // รับค่า query parameter จาก URL (เช่น ?keyword=React&page=1)
+  const { keyword, category, page = 1, limit = 10 } = req.query;
+  
+  // คำนวณ Pagination (Supabase ใช้ range แบบเริ่มที่ 0)
+  const start = (page - 1) * limit;
+  const end = start + limit - 1;
 
-  const { title, image, category_id, description, content, status_id } = req.body;
+  // เริ่มสร้าง Query
+  let query = supabase.from("posts").select("*", { count: "exact" });
 
-  // Validation: ตรวจสอบข้อมูล
-  if (!title || !image || !category_id || !description || !content || !status_id) {
-    return res.status(400).json({
-      message: "Server could not create post because there are missing data from client",
-    });
+  // ถ้ามีการส่ง keyword มา ให้ค้นหาใน title
+  if (keyword) {
+    query = query.ilike("title", `%${keyword}%`);
+  }
+  // ถ้ามีการส่ง category มา ให้กรองตามนั้น
+  if (category) {
+    query = query.ilike("category", `%${category}%`); // หมายเหตุ: ตรวจสอบใน DB ว่าคอลัมน์ชื่อ category หรือ category_id
   }
 
-  // Insert: บันทึกลงฐานข้อมูล Supabase
-  const { data, error } = await supabase.from("posts").insert([
-    {
-      title,
-      image,
-      category_id,
-      description,
-      content,
-      status_id,
-    },
-  ]);
+  // สั่งรัน Query พร้อมแบ่งหน้า
+  const { data, error, count } = await query.range(start, end);
 
-  // Error Handling
-  if (error) {
-    console.error("Supabase Error:", error);
-    return res.status(500).json({
-      message: "Server could not create post because database connection",
-      error: error.message
-    });
-  }
-
-  // Success
-  return res.status(201).json({
-    message: "Created post successfully",
+  if (error) return res.status(500).json({ message: error.message });
+  return res.json({ 
+    data: data,
+    pagination: {
+      page: Number(page),
+      limit: Number(limit),
+      total: count
+    }
   });
 });
 
-// Start Server
+// -------------------------------------------------------------
+// 3. API ใหม่: อ่านบทความรายตัว (Read One)
+// -------------------------------------------------------------
+app.get("/posts/:id", async (req, res) => {
+  const postId = req.params.id;
+
+  // ค้นหา post ที่ id ตรงกับที่ส่งมา
+  const { data, error } = await supabase.from("posts").select("*").eq("id", postId).single();
+
+  if (error) return res.status(404).json({ message: "Post not found" });
+  return res.json({ data: data });
+});
+
+// -------------------------------------------------------------
+// 4. API ใหม่: แก้ไขบทความ (Update)
+// -------------------------------------------------------------
+app.put("/posts/:id", async (req, res) => {
+  const postId = req.params.id;
+  // รับข้อมูลใหม่ที่จะแก้ไข
+  const { title, image, description, content } = req.body; 
+
+  // สั่ง update ข้อมูล
+  const { error } = await supabase
+    .from("posts")
+    .update({ title, image, description, content }) // อัปเดตเฉพาะฟิลด์ที่ระบุ
+    .eq("id", postId);
+
+  if (error) return res.status(500).json({ message: error.message });
+  return res.json({ message: "Updated post successfully" });
+});
+
+// -------------------------------------------------------------
+// 5. API ใหม่: ลบบทความ (Delete)
+// -------------------------------------------------------------
+app.delete("/posts/:id", async (req, res) => {
+  const postId = req.params.id;
+
+  // สั่งลบข้อมูล
+  const { error } = await supabase.from("posts").delete().eq("id", postId);
+
+  if (error) return res.status(500).json({ message: error.message });
+  return res.json({ message: "Deleted post successfully" });
+});
+
+// Health Check
+app.get("/health", (req, res) => res.json({ message: "OK" }));
+
 app.listen(port, () => {
   console.log(`Server is running at ${port}`);
 });
